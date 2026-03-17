@@ -18,12 +18,43 @@ jobs:
           path: data/last_movies.json
           key: movie-snapshot
 
+      - name: Debug - Test PVR API directly
+        run: |
+          python3 -c "
+          from urllib.request import Request, urlopen
+          import json
+          headers = {
+              'User-Agent': 'Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0',
+              'Accept': 'application/json, text/plain, */*',
+              'Accept-Language': 'en-US,en;q=0.9',
+              'Content-Type': 'application/json',
+              'chain': 'PVR',
+              'city': '',
+              'appVersion': '1.0',
+              'platform': 'WEBSITE',
+              'country': 'INDIA',
+              'flow': 'PVRINOX',
+              'Origin': 'https://www.pvrcinemas.com',
+          }
+          body = json.dumps({'lat': '0.000', 'lng': '0.000'}).encode()
+          req = Request('https://api3.pvrcinemas.com/api/v1/booking/content/city', data=body, headers=headers, method='POST')
+          try:
+              with urlopen(req, timeout=15) as resp:
+                  data = json.loads(resp.read())
+                  cities = data.get('output', {}).get('ot', [])
+                  print(f'Direct API works! Cities: {len(cities)}')
+          except Exception as e:
+              print(f'Direct API failed: {e}')
+          "
+
       - name: Run movie checker
         env:
           PVR_CITY: ${{ vars.PVR_CITY || 'Chennai' }}
           PVR_LANGUAGES: ${{ vars.PVR_LANGUAGES || '' }}
           PVR_GENRES: ${{ vars.PVR_GENRES || '' }}
           PVR_CERTIFICATES: ${{ vars.PVR_CERTIFICATES || '' }}
+          PROXY_URL: ${{ vars.PROXY_URL }}
+          PROXY_API_KEY: ${{ secrets.PROXY_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python check_movies.py
