@@ -109,16 +109,16 @@ function detectNewMovies(current, previous) {
 }
 
 function formatMovie(m) {
-  const parts = [`🎬 ${m.n || "Unknown"}`];
-  if (m.ce) parts.push(`  Certificate: ${m.ce}`);
-  if (m.mlength) parts.push(`  Duration: ${m.mlength}`);
+  const parts = [`🎬 *${m.n || "Unknown"}*`];
+  if (m.ce) parts.push(`*Certificate:* ${m.ce}`);
+  if (m.mlength) parts.push(`*Duration:* ${m.mlength}`);
   const langs = (m.mfs || []).join(", ");
-  if (langs) parts.push(`  Language: ${langs}`);
+  if (langs) parts.push(`*Language:* ${langs}`);
   const genres = (m.grs || []).join(", ");
-  if (genres) parts.push(`  Genre: ${genres}`);
-  if (m.director) parts.push(`  Director: ${m.director}`);
-  if (m.starring) parts.push(`  Cast: ${m.starring}`);
-  if (m.rt) parts.push(`  Status: ${m.rt}`);
+  if (genres) parts.push(`*Genre:* ${genres}`);
+  if (m.director) parts.push(`*Director:* ${m.director}`);
+  if (m.starring) parts.push(`*Cast:* ${m.starring}`);
+  if (m.rt) parts.push(`*Status:* ${m.rt}`);
   return parts.join("\n");
 }
 
