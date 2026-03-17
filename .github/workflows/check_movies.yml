@@ -18,17 +18,21 @@ jobs:
           path: data/last_movies.json
           key: movie-snapshot
 
-      - name: Debug - Test proxy via curl
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Debug - Test proxy via requests
         env:
           PROXY_URL: ${{ vars.PROXY_URL }}
           PROXY_API_KEY: ${{ secrets.PROXY_API_KEY }}
         run: |
-          curl -s -w "\nHTTP %{http_code}" -X POST "${PROXY_URL}city" \
-            -H "Content-Type: application/json" \
-            -H "x-api-key: ${PROXY_API_KEY}" \
-            -H "city: " \
-            -H "User-Agent: Mozilla/5.0" \
-            -d '{"lat":"0.000","lng":"0.000"}' | tail -1
+          python3 -c "
+          import os, requests
+          url = os.environ['PROXY_URL'].rstrip('/') + '/city'
+          key = os.environ['PROXY_API_KEY']
+          r = requests.post(url, headers={'x-api-key': key, 'city': ''}, json={'lat': '0.000', 'lng': '0.000'}, timeout=15)
+          print(f'HTTP {r.status_code}, Cities: {len(r.json().get(\"output\",{}).get(\"ot\",[]))}')
+          "
 
       - name: Run movie checker
         env:

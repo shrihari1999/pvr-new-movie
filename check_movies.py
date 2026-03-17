@@ -4,19 +4,29 @@
 import json
 import os
 from pathlib import Path
-from urllib.request import Request, urlopen
 
-API_BASE = "https://api3.pvrcinemas.com/api/v1/booking/content"
+import requests as req_lib
+
+PROXY_URL = os.environ.get("PROXY_URL", "")
+PROXY_API_KEY = os.environ.get("PROXY_API_KEY", "")
+
+# When PROXY_URL is set, route through Cloudflare Worker; otherwise call PVR directly
+API_BASE = PROXY_URL.rstrip("/") if PROXY_URL else "https://api3.pvrcinemas.com/api/v1/booking/content"
 HEADERS = {
-    "chain": "PVR",
-    "platform": "WEBSITE",
-    "country": "INDIA",
-    "flow": "PVRINOX",
-    "appVersion": "1.0",
     "Content-Type": "application/json",
-    "Origin": "https://www.pvrcinemas.com",
     "User-Agent": "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0",
 }
+if PROXY_URL:
+    HEADERS["x-api-key"] = PROXY_API_KEY
+else:
+    HEADERS.update({
+        "chain": "PVR",
+        "platform": "WEBSITE",
+        "country": "INDIA",
+        "flow": "PVRINOX",
+        "appVersion": "1.0",
+        "Origin": "https://www.pvrcinemas.com",
+    })
 
 DATA_DIR = Path("data")
 SNAPSHOT_FILE = DATA_DIR / "last_movies.json"
@@ -28,10 +38,9 @@ KNOWN_CERTIFICATES_FILE = DATA_DIR / "known_certificates.json"
 
 def api_post(url, headers, body):
     """POST JSON to a URL and return parsed JSON response."""
-    data = json.dumps(body).encode()
-    req = Request(url, data=data, headers=headers, method="POST")
-    with urlopen(req, timeout=30) as resp:
-        return json.loads(resp.read())
+    resp = req_lib.post(url, headers=headers, json=body, timeout=30)
+    resp.raise_for_status()
+    return resp.json()
 
 
 def fetch_cities():
@@ -179,15 +188,12 @@ def format_movie(movie):
 def send_telegram(token: str, chat_id: str, title: str, body: str):
     """Send alert via Telegram bot."""
     text = f"*{title}*\n\n{body}"
-    payload = json.dumps({"chat_id": chat_id, "text": text, "parse_mode": "Markdown"}).encode()
-    req = Request(
+    resp = req_lib.post(
         f"https://api.telegram.org/bot{token}/sendMessage",
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
+        json={"chat_id": chat_id, "text": text, "parse_mode": "Markdown"},
+        timeout=15,
     )
-    with urlopen(req, timeout=15):
-        pass
+    resp.raise_for_status()
 
 
 def send_alert(new_movies, city: str):
