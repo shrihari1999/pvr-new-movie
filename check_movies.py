@@ -37,8 +37,12 @@ def api_post(url, headers, body):
 def fetch_cities():
     """Fetch all available cities from PVR API."""
     headers = {**HEADERS, "city": ""}
-    data = api_post(f"{API_BASE}/city", headers, {"lat": "0.000", "lng": "0.000"})
-    return data.get("output", {}).get("ot", [])
+    try:
+        data = api_post(f"{API_BASE}/city", headers, {"lat": "0.000", "lng": "0.000"})
+        return data.get("output", {}).get("ot", [])
+    except Exception as e:
+        print(f"Warning: Could not fetch cities ({e}), skipping city update")
+        return []
 
 
 def update_known_values(filepath, new_values):
