@@ -122,8 +122,7 @@ function formatMovie(m) {
   return parts.join("\n");
 }
 
-async function sendTelegram(token, chatId, title, body) {
-  const text = `*${title}*\n\n${body}`;
+async function sendTelegramMessage(token, chatId, text) {
   const resp = await fetch(
     `https://api.telegram.org/bot${token}/sendMessage`,
     {
@@ -139,6 +138,27 @@ async function sendTelegram(token, chatId, title, body) {
   if (!resp.ok) {
     const err = await resp.text();
     throw new Error(`Telegram error: ${resp.status} ${err}`);
+  }
+}
+
+async function sendTelegram(token, chatId, title, movies) {
+  // Telegram has a 4096 char limit — split into multiple messages if needed
+  const MAX_LEN = 4000;
+  let current = `*${title}*\n`;
+  const chunks = [];
+
+  for (const m of movies) {
+    const entry = "\n" + formatMovie(m) + "\n";
+    if (current.length + entry.length > MAX_LEN) {
+      chunks.push(current);
+      current = `*${title} (contd.)*\n`;
+    }
+    current += entry;
+  }
+  if (current.length > 0) chunks.push(current);
+
+  for (const chunk of chunks) {
+    await sendTelegramMessage(token, chatId, chunk);
   }
 }
 
@@ -208,7 +228,7 @@ async function checkMovies(env) {
     log(`\n${title}\n${body}\n`);
 
     if (env.TELEGRAM_BOT_TOKEN && env.TELEGRAM_CHAT_ID) {
-      await sendTelegram(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, title, body);
+      await sendTelegram(env.TELEGRAM_BOT_TOKEN, env.TELEGRAM_CHAT_ID, title, filtered);
       log("Sent Telegram alert");
     } else {
       log("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set, skipping alert");
