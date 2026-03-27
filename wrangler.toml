@@ -12,5 +12,10 @@ PVR_CERTIFICATES = ""
 binding = "KV"
 id = "e2c2b8a22a46402abaf853483d4ff82f"
 
+[observability]
+[observability.logs]
+enabled = true
+invocation_logs = true
+
 [triggers]
 crons = ["0 6 * * *"]
