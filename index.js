@@ -30,6 +30,7 @@ const PVR_HEADERS = {
   appVersion: "1.0",
   "Content-Type": "application/json",
   Origin: "https://www.pvrcinemas.com",
+  Referer: "https://www.pvrcinemas.com/",
   "User-Agent":
     "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0",
 };
@@ -170,7 +171,7 @@ async function checkMovies(env) {
   // Fetch and update known cities
   log("Fetching cities...");
   try {
-    const cityData = await pvrPost("city", { lat: "0.000", lng: "0.000" }, "");
+    const cityData = await pvrPost("city", { lat: "0.000", lng: "0.000" }, city);
     const cityNames = (cityData.output?.ot || []).map((c) => c.name).filter(Boolean);
     const knownCities = await getKV(env.KV, "known_cities");
     const { updated, merged } = updateKnownValues(knownCities, cityNames);
