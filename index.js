@@ -245,9 +245,14 @@ async function checkMovies(env) {
 }
 
 export default {
-  // Cron trigger — runs on schedule
+  // Cron trigger — calls own HTTP endpoint to avoid CF-Worker header on PVR requests
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(checkMovies(env));
+    const url = env.WORKER_URL || "https://pvr-proxy.shrihari1999.workers.dev/";
+    const headers = {};
+    if (env.API_KEY) headers["x-api-key"] = env.API_KEY;
+    ctx.waitUntil(
+      fetch(url, { headers }).then((r) => r.text()).then(console.log)
+    );
   },
 
   // HTTP trigger — for manual testing
