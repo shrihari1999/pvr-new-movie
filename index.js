@@ -43,7 +43,11 @@ async function pvrPost(endpoint, body, city = "") {
     headers,
     body: JSON.stringify(body),
   });
-  if (!resp.ok) throw new Error(`PVR ${endpoint}: HTTP ${resp.status}`);
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => "");
+    console.log(`PVR ${endpoint} error: HTTP ${resp.status}, body: ${text.slice(0, 500)}`);
+    throw new Error(`PVR ${endpoint}: HTTP ${resp.status}`);
+  }
   return resp.json();
 }
 
@@ -245,14 +249,9 @@ async function checkMovies(env) {
 }
 
 export default {
-  // Cron trigger — calls own HTTP endpoint to avoid CF-Worker header on PVR requests
+  // Cron trigger — runs on schedule
   async scheduled(event, env, ctx) {
-    const url = env.WORKER_URL || "https://pvr-proxy.shrihari1999.workers.dev/";
-    const headers = {};
-    if (env.API_KEY) headers["x-api-key"] = env.API_KEY;
-    ctx.waitUntil(
-      fetch(url, { headers }).then((r) => r.text()).then(console.log)
-    );
+    ctx.waitUntil(checkMovies(env));
   },
 
   // HTTP trigger — for manual testing
