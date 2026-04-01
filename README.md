@@ -1,75 +1,56 @@
 # PVR New Movie Alert
 
-A Cloudflare Worker that checks PVR Cinemas for new movies daily and sends alerts via Telegram.
+Get daily Telegram alerts when new movies appear on PVR Cinemas. Runs for free on GitHub Actions.
 
 ## How it works
 
-- Runs on a cron schedule (daily at 6 AM UTC / 11:30 AM IST)
-- Fetches now-showing movies from PVR's API for a configured city
-- Compares against the previous snapshot stored in Cloudflare KV
-- Sends a Telegram alert for any new movies that match your filters
-- Gradually builds a knowledge base of cities, languages, genres, and certificates
+- Runs daily on a GitHub Actions cron schedule
+- Fetches now-showing movies from PVR's API for your city
+- Compares against the previous snapshot to detect new additions
+- Filters by language, genre, or certificate if configured
+- Sends a Telegram alert for matching new movies
 
 ## Setup
 
-### 1. Create a KV namespace
-
-In the Cloudflare dashboard: **Storage & Databases** > **KV** > **Create a namespace** > Name it `PVR_DATA`
-
-Update the KV namespace ID in `wrangler.toml`.
+### 1. Fork this repo
 
 ### 2. Create a Telegram bot
 
-1. Message [@BotFather](https://t.me/BotFather) on Telegram
-2. Send `/newbot` and follow the prompts
-3. Copy the bot token
-4. Message [@userinfobot](https://t.me/userinfobot) to get your chat ID
-5. Start a chat with your new bot and send `/start`
+1. Message [@BotFather](https://t.me/BotFather) on Telegram and send `/newbot`
+2. Copy the bot token
+3. Message [@userinfobot](https://t.me/userinfobot) to get your chat ID
+4. Open your new bot in Telegram and send `/start`
 
-### 3. Configure secrets
+### 3. Get a scrape.do token
 
-In the Cloudflare dashboard: **Workers & Pages** > your worker > **Settings** > **Variables and Secrets**
+Sign up at [scrape.do](https://scrape.do) (free tier is sufficient) and copy your API token.
 
-| Name | Type | Description |
-|------|------|-------------|
-| `TELEGRAM_BOT_TOKEN` | Secret | Bot token from BotFather |
-| `TELEGRAM_CHAT_ID` | Secret | Your Telegram chat ID |
-| `API_KEY` | Secret | Any strong random string (protects the HTTP trigger) |
+### 4. Add GitHub secrets
 
-### 4. Configure filters
+Go to your repo **Settings** > **Secrets and variables** > **Actions** > **Secrets**:
 
-Edit `wrangler.toml` to set your preferences:
+| Secret | Description |
+|--------|-------------|
+| `SCRAPE_DO_TOKEN` | Your scrape.do API token |
+| `TELEGRAM_BOT_TOKEN` | Bot token from BotFather |
+| `TELEGRAM_CHAT_ID` | Your Telegram chat ID |
 
-```toml
-[vars]
-PVR_CITY = "Chennai"           # City to check (see PVR website for options)
-PVR_LANGUAGES = "English"      # Comma-separated, or empty for all
-PVR_GENRES = ""                # Comma-separated, or empty for all
-PVR_CERTIFICATES = ""          # Comma-separated, or empty for all
-```
+### 5. Configure filters (optional)
+
+Go to **Settings** > **Secrets and variables** > **Actions** > **Variables**:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PVR_CITY` | `Chennai` | City to check (see [PVR website](https://www.pvrcinemas.com) for options) |
+| `PVR_LANGUAGES` | *(all)* | Comma-separated, e.g. `English, Tamil` |
+| `PVR_GENRES` | *(all)* | Comma-separated, e.g. `Action, Thriller` |
+| `PVR_CERTIFICATES` | *(all)* | Comma-separated, e.g. `U, UA 16+` |
 
 Filter logic:
 - Within a filter: **OR** (movie matches at least one value)
 - Across filters: **AND** (all configured filters must pass)
+- If a filter is not set, all movies pass through on that dimension
 
-### 5. Deploy
+### 6. Run
 
-Connect your GitHub repo in the Cloudflare dashboard: **Workers & Pages** > your worker > **Settings** > **Build** > connect repo. Every push to `master` auto-deploys.
-
-### Manual trigger
-
-```bash
-curl -X GET https://your-worker.workers.dev/ -H "x-api-key: YOUR_API_KEY"
-```
-
-## Knowledge base
-
-The worker automatically discovers and stores all unique values in KV:
-
-| KV Key | Contents |
-|--------|----------|
-| `known_cities` | All available PVR cities |
-| `known_languages` | All movie languages seen |
-| `known_genres` | All genres seen |
-| `known_certs` | All certificate ratings seen |
-| `last_movies` | Snapshot from the last run |
+The workflow runs automatically every day at 11:30 AM IST. You can also trigger it manually from the **Actions** tab.
