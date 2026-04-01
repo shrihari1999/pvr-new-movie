@@ -20,9 +20,13 @@
  *   PVR_CERTIFICATES    — Comma-separated certificate filter (optional)
  */
 
-const PVR_BASE = "https://api3.pvrcinemas.com/api/v1/booking/content";
+import { connect } from "cloudflare:sockets";
+
+const PVR_HOST = "api3.pvrcinemas.com";
+const PVR_PATH = "/api/v1/booking/content";
 
 const PVR_HEADERS = {
+  Host: PVR_HOST,
   chain: "PVR",
   platform: "WEBSITE",
   country: "INDIA",
@@ -33,22 +37,60 @@ const PVR_HEADERS = {
   Referer: "https://www.pvrcinemas.com/",
   "User-Agent":
     "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0",
+  Accept: "application/json, text/plain, */*",
+  "Accept-Encoding": "identity",
+  Connection: "close",
 };
 
 async function pvrPost(endpoint, body, city = "") {
   const headers = { ...PVR_HEADERS };
   if (city !== undefined) headers.city = city;
-  const resp = await fetch(`${PVR_BASE}/${endpoint}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
-  if (!resp.ok) {
-    const text = await resp.text().catch(() => "");
-    console.log(`PVR ${endpoint} error: HTTP ${resp.status}, body: ${text.slice(0, 500)}`);
-    throw new Error(`PVR ${endpoint}: HTTP ${resp.status}`);
+  const jsonBody = JSON.stringify(body);
+  headers["Content-Length"] = new TextEncoder().encode(jsonBody).length.toString();
+
+  // Build raw HTTP request
+  const lines = [`POST ${PVR_PATH}/${endpoint} HTTP/1.1`];
+  for (const [k, v] of Object.entries(headers)) {
+    lines.push(`${k}: ${v}`);
   }
-  return resp.json();
+  lines.push("", jsonBody);
+  const raw = lines.join("\r\n");
+
+  // Connect via raw TLS socket — bypasses CF-Worker header injection
+  const socket = connect({ hostname: PVR_HOST, port: 443 }, { secureTransport: "on" });
+  const writer = socket.writable.getWriter();
+  await writer.write(new TextEncoder().encode(raw));
+  await writer.close();
+
+  // Read full response
+  const reader = socket.readable.getReader();
+  const chunks = [];
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+  }
+
+  const responseText = new TextDecoder().decode(
+    chunks.reduce((acc, chunk) => {
+      const merged = new Uint8Array(acc.length + chunk.length);
+      merged.set(acc);
+      merged.set(chunk, acc.length);
+      return merged;
+    }, new Uint8Array())
+  );
+
+  // Parse HTTP response — split headers and body
+  const headerEnd = responseText.indexOf("\r\n\r\n");
+  const statusLine = responseText.slice(0, responseText.indexOf("\r\n"));
+  const statusCode = parseInt(statusLine.split(" ")[1], 10);
+  const responseBody = responseText.slice(headerEnd + 4);
+
+  if (statusCode < 200 || statusCode >= 300) {
+    console.log(`PVR ${endpoint} error: HTTP ${statusCode}, body: ${responseBody.slice(0, 500)}`);
+    throw new Error(`PVR ${endpoint}: HTTP ${statusCode}`);
+  }
+  return JSON.parse(responseBody);
 }
 
 async function getKV(kv, key) {
