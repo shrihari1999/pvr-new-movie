@@ -2,6 +2,7 @@
  * Cloudflare Worker — PVR New Movie Alert.
  * Runs on a cron trigger, checks PVR for new movies, sends Telegram alerts.
  * State stored in Cloudflare KV.
+ * PVR API calls proxied through scrape.do to bypass Akamai bot detection.
  *
  * KV keys:
  *   last_movies     — JSON array of movie objects from previous run
@@ -12,85 +13,50 @@
  *
  * Env vars (set in Cloudflare dashboard):
  *   KV                  — KV namespace binding
- *   TELEGRAM_BOT_TOKEN  — Telegram bot token
- *   TELEGRAM_CHAT_ID    — Telegram chat ID
+ *   SCRAPE_DO_TOKEN     — scrape.do API token (secret)
+ *   TELEGRAM_BOT_TOKEN  — Telegram bot token (secret)
+ *   TELEGRAM_CHAT_ID    — Telegram chat ID (secret)
+ *   API_KEY             — API key for manual HTTP triggers (secret)
  *   PVR_CITY            — City name (default: Chennai)
  *   PVR_LANGUAGES       — Comma-separated language filter (optional)
  *   PVR_GENRES          — Comma-separated genre filter (optional)
  *   PVR_CERTIFICATES    — Comma-separated certificate filter (optional)
  */
 
-import { connect } from "cloudflare:sockets";
+const PVR_BASE = "https://api3.pvrcinemas.com/api/v1/booking/content";
 
-const PVR_HOST = "api3.pvrcinemas.com";
-const PVR_PATH = "/api/v1/booking/content";
+async function pvrPost(endpoint, body, city, scrapeToken) {
+  const targetUrl = encodeURIComponent(`${PVR_BASE}/${endpoint}`);
+  const url = `http://api.scrape.do/?url=${targetUrl}&token=${scrapeToken}&transparentResponse=true&extraHeaders=true`;
 
-const PVR_HEADERS = {
-  Host: PVR_HOST,
-  chain: "PVR",
-  platform: "WEBSITE",
-  country: "INDIA",
-  flow: "PVRINOX",
-  appVersion: "1.0",
-  "Content-Type": "application/json",
-  Origin: "https://www.pvrcinemas.com",
-  Referer: "https://www.pvrcinemas.com/",
-  "User-Agent":
-    "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:148.0) Gecko/20100101 Firefox/148.0",
-  Accept: "application/json, text/plain, */*",
-  "Accept-Encoding": "identity",
-  Connection: "close",
-};
+  const headers = {
+    "sd-Host": "api3.pvrcinemas.com",
+    "sd-Accept": "application/json",
+    "sd-Accept-Language": "en-US,en;q=0.9",
+    "sd-Content-Type": "application/json",
+    "sd-chain": "PVR",
+    "sd-city": city,
+    "sd-appVersion": "1.0",
+    "sd-platform": "WEBSITE",
+    "sd-country": "INDIA",
+    "sd-flow": "PVRINOX",
+    "sd-Origin": "https://www.pvrcinemas.com",
+    "sd-Referer": "https://www.pvrcinemas.com/",
+    "Content-Type": "application/json",
+  };
 
-async function pvrPost(endpoint, body, city = "") {
-  const headers = { ...PVR_HEADERS };
-  if (city !== undefined) headers.city = city;
-  const jsonBody = JSON.stringify(body);
-  headers["Content-Length"] = new TextEncoder().encode(jsonBody).length.toString();
+  const resp = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify(body),
+  });
 
-  // Build raw HTTP request
-  const lines = [`POST ${PVR_PATH}/${endpoint} HTTP/1.1`];
-  for (const [k, v] of Object.entries(headers)) {
-    lines.push(`${k}: ${v}`);
+  if (!resp.ok) {
+    const text = await resp.text().catch(() => "");
+    console.log(`PVR ${endpoint} error: HTTP ${resp.status}, body: ${text.slice(0, 500)}`);
+    throw new Error(`PVR ${endpoint}: HTTP ${resp.status}`);
   }
-  lines.push("", jsonBody);
-  const raw = lines.join("\r\n");
-
-  // Connect via raw TLS socket — bypasses CF-Worker header injection
-  const socket = connect({ hostname: PVR_HOST, port: 443 }, { secureTransport: "on" });
-  const writer = socket.writable.getWriter();
-  await writer.write(new TextEncoder().encode(raw));
-  await writer.close();
-
-  // Read full response
-  const reader = socket.readable.getReader();
-  const chunks = [];
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-  }
-
-  const responseText = new TextDecoder().decode(
-    chunks.reduce((acc, chunk) => {
-      const merged = new Uint8Array(acc.length + chunk.length);
-      merged.set(acc);
-      merged.set(chunk, acc.length);
-      return merged;
-    }, new Uint8Array())
-  );
-
-  // Parse HTTP response — split headers and body
-  const headerEnd = responseText.indexOf("\r\n\r\n");
-  const statusLine = responseText.slice(0, responseText.indexOf("\r\n"));
-  const statusCode = parseInt(statusLine.split(" ")[1], 10);
-  const responseBody = responseText.slice(headerEnd + 4);
-
-  if (statusCode < 200 || statusCode >= 300) {
-    console.log(`PVR ${endpoint} error: HTTP ${statusCode}, body: ${responseBody.slice(0, 500)}`);
-    throw new Error(`PVR ${endpoint}: HTTP ${statusCode}`);
-  }
-  return JSON.parse(responseBody);
+  return resp.json();
 }
 
 async function getKV(kv, key) {
@@ -189,7 +155,6 @@ async function sendTelegramMessage(token, chatId, text) {
 }
 
 async function sendTelegram(token, chatId, title, movies) {
-  // Telegram has a 4096 char limit — split into multiple messages if needed
   const MAX_LEN = 4000;
   let current = `*${title}*\n`;
   const chunks = [];
@@ -211,13 +176,19 @@ async function sendTelegram(token, chatId, title, movies) {
 
 async function checkMovies(env) {
   const city = env.PVR_CITY || "Chennai";
+  const token = env.SCRAPE_DO_TOKEN;
   const logs = [];
   const log = (msg) => { logs.push(msg); console.log(msg); };
+
+  if (!token) {
+    log("Error: SCRAPE_DO_TOKEN not set");
+    return logs.join("\n");
+  }
 
   // Fetch and update known cities
   log("Fetching cities...");
   try {
-    const cityData = await pvrPost("city", { lat: "0.000", lng: "0.000" }, city);
+    const cityData = await pvrPost("city", { lat: "0.000", lng: "0.000" }, city, token);
     const cityNames = (cityData.output?.ot || []).map((c) => c.name).filter(Boolean);
     const knownCities = await getKV(env.KV, "known_cities");
     const { updated, merged } = updateKnownValues(knownCities, cityNames);
@@ -233,7 +204,7 @@ async function checkMovies(env) {
 
   // Fetch now-showing movies
   log(`\nFetching now-showing movies for ${city}...`);
-  const movieData = await pvrPost("nowshowing", { city }, city);
+  const movieData = await pvrPost("nowshowing", { city }, city, token);
   const currentMovies = movieData.output?.mv || [];
   log(`Found ${currentMovies.length} movies currently showing`);
 
@@ -302,7 +273,6 @@ export default {
       return new Response("Method not allowed", { status: 405 });
     }
 
-    // Simple API key check for manual triggers
     const apiKey = request.headers.get("x-api-key");
     if (env.API_KEY && (!apiKey || apiKey !== env.API_KEY)) {
       return new Response("Unauthorized", { status: 401 });
