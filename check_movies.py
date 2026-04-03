@@ -56,6 +56,11 @@ def detect_new_movies(current, previous):
     return [m for m in current if m.get("id") not in prev_ids]
 
 
+def detect_removed_movies(current, previous):
+    curr_ids = {m.get("id") for m in current}
+    return [m for m in previous if m.get("id") not in curr_ids]
+
+
 def parse_filter(env_var):
     val = os.environ.get(env_var, "").strip()
     if not val:
@@ -153,20 +158,31 @@ def main():
 
     previous_movies = load_snapshot()
     new_movies = detect_new_movies(current_movies, previous_movies)
-    filtered = filter_movies(new_movies)
+    removed_movies = detect_removed_movies(current_movies, previous_movies)
+    filtered_new = filter_movies(new_movies)
+    filtered_removed = filter_movies(removed_movies)
 
-    if new_movies and len(filtered) < len(new_movies):
-        print(f"Detected {len(new_movies)} new movie(s), {len(filtered)} match filters")
+    if new_movies and len(filtered_new) < len(new_movies):
+        print(f"Detected {len(new_movies)} new movie(s), {len(filtered_new)} match filters")
 
-    if filtered:
-        title = f"{len(filtered)} new movie(s) on PVR — {city}"
+    if filtered_new:
+        title = f"{len(filtered_new)} new movie(s) on PVR — {city}"
         print(f"\n{title}")
-        for m in filtered:
+        for m in filtered_new:
             print(format_movie(m))
             print()
-        send_telegram(title, filtered)
-    else:
-        print("No new movies since last check.")
+        send_telegram(title, filtered_new)
+
+    if filtered_removed:
+        title = f"{len(filtered_removed)} movie(s) removed from PVR — {city}"
+        print(f"\n{title}")
+        for m in filtered_removed:
+            print(format_movie(m))
+            print()
+        send_telegram(title, filtered_removed)
+
+    if not filtered_new and not filtered_removed:
+        print("No changes since last check.")
 
     save_snapshot(current_movies)
 
