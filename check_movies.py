@@ -92,9 +92,19 @@ def filter_movies(movies):
     return filtered
 
 
-def format_movie(m):
+def booking_url(m, city):
+    name = m.get("n")
+    mid = m.get("id")
+    if not name or not mid:
+        return None
+    return f"https://www.pvrcinemas.com/moviesessions/-{quote(city)}/{quote(name)}/{mid}"
+
+
+def format_movie(m, city):
     name = m.get("n") or "Unknown"
-    parts = [f"🎬 *{name}*"]
+    url = booking_url(m, city)
+    title = f"[{name}]({url})" if url else name
+    parts = [f"🎬 *{title}*"]
     if m.get("ce"):
         parts.append(f"*Certificate:* {m['ce']}")
     if m.get("mlength"):
@@ -114,7 +124,7 @@ def format_movie(m):
     return "\n".join(parts)
 
 
-def send_telegram(title, movies):
+def send_telegram(title, movies, city):
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
@@ -127,7 +137,7 @@ def send_telegram(title, movies):
     chunks = []
 
     for m in movies:
-        entry = "\n" + format_movie(m) + "\n"
+        entry = "\n" + format_movie(m, city) + "\n"
         if len(current) + len(entry) > max_len:
             chunks.append(current)
             current = f"*{title} (contd.)*\n"
@@ -169,17 +179,17 @@ def main():
         title = f"{len(filtered_new)} new movie(s) on PVR — {city}"
         print(f"\n{title}")
         for m in filtered_new:
-            print(format_movie(m))
+            print(format_movie(m, city))
             print()
-        send_telegram(title, filtered_new)
+        send_telegram(title, filtered_new, city)
 
     if filtered_removed:
         title = f"{len(filtered_removed)} movie(s) removed from PVR — {city}"
         print(f"\n{title}")
         for m in filtered_removed:
-            print(format_movie(m))
+            print(format_movie(m, city))
             print()
-        send_telegram(title, filtered_removed)
+        send_telegram(title, filtered_removed, city)
 
     if not filtered_new and not filtered_removed:
         print("No changes since last check.")
