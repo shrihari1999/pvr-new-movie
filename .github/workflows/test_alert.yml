@@ -1,0 +1,42 @@
+name: Test Telegram Alert
+
+on:
+  workflow_dispatch: # Manual trigger only
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send test Telegram message
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from urllib.request import Request, urlopen
+
+          token = os.environ.get("TELEGRAM_BOT_TOKEN")
+          chat_id = os.environ.get("TELEGRAM_CHAT_ID")
+          if not token or not chat_id:
+              raise SystemExit("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set")
+
+          text = (
+              "<b>✅ PVR alert bot — test message</b>\n\n"
+              "If you can read this, Telegram delivery is working. "
+              "New-movie alerts (like THE FURIOUS) are sent through this same channel."
+          )
+          payload = json.dumps({"chat_id": chat_id, "text": text, "parse_mode": "HTML"}).encode()
+          req = Request(
+              f"https://api.telegram.org/bot{token}/sendMessage",
+              data=payload,
+              headers={"Content-Type": "application/json"},
+              method="POST",
+          )
+          with urlopen(req, timeout=15) as resp:
+              body = json.loads(resp.read())
+          print("Telegram API response:", json.dumps(body))
+          if not body.get("ok"):
+              raise SystemExit("Telegram reported failure")
+          print("Test alert sent successfully")
+          PY
