@@ -150,31 +150,36 @@ def booking_url(m, city):
     return f"https://www.pvrcinemas.com/moviesessions/-{quote(city)}/{quote(name)}/{mid}"
 
 
+def esc(text):
+    """Escape HTML special characters for Telegram."""
+    return str(text).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
 def format_movie(m, city):
     name = m.get("n") or "Unknown"
     url = booking_url(m, city)
-    title = f"[{name}]({url})" if url else name
-    parts = [f"🎬 *{title}*"]
+    title = f'<a href="{esc(url)}">{esc(name)}</a>' if url else esc(name)
+    parts = [f"🎬 <b>{title}</b>"]
     if m.get("ce"):
-        parts.append(f"*Certificate:* {m['ce']}")
+        parts.append(f"<b>Certificate:</b> {esc(m['ce'])}")
     if m.get("mlength"):
-        parts.append(f"*Duration:* {m['mlength']}")
+        parts.append(f"<b>Duration:</b> {esc(m['mlength'])}")
     langs = ", ".join(m.get("mfs", []))
     if langs:
-        parts.append(f"*Language:* {langs}")
+        parts.append(f"<b>Language:</b> {esc(langs)}")
     genres = ", ".join(m.get("grs", []))
     if genres:
-        parts.append(f"*Genre:* {genres}")
+        parts.append(f"<b>Genre:</b> {esc(genres)}")
     if m.get("director"):
-        parts.append(f"*Director:* {m['director']}")
+        parts.append(f"<b>Director:</b> {esc(m['director'])}")
     if m.get("starring"):
-        parts.append(f"*Cast:* {m['starring']}")
+        parts.append(f"<b>Cast:</b> {esc(m['starring'])}")
     if m.get("rt"):
-        parts.append(f"*Status:* {m['rt']}")
+        parts.append(f"<b>Status:</b> {esc(m['rt'])}")
     return "\n".join(parts)
 
 
-def telegram_send(text, markdown=True):
+def telegram_send(text, html=True):
     """Send one Telegram message. Returns False if credentials are missing."""
     token = os.environ.get("TELEGRAM_BOT_TOKEN")
     chat_id = os.environ.get("TELEGRAM_CHAT_ID")
@@ -183,8 +188,8 @@ def telegram_send(text, markdown=True):
         return False
 
     body = {"chat_id": chat_id, "text": text}
-    if markdown:
-        body["parse_mode"] = "Markdown"
+    if html:
+        body["parse_mode"] = "HTML"
 
     req = Request(
         f"https://api.telegram.org/bot{token}/sendMessage",
@@ -200,14 +205,14 @@ def telegram_send(text, markdown=True):
 def send_telegram(title, movies, city):
     # Split into chunks to respect Telegram's 4096 char limit
     max_len = 4000
-    current = f"*{title}*\n"
+    current = f"<b>{esc(title)}</b>\n"
     chunks = []
 
     for m in movies:
         entry = "\n" + format_movie(m, city) + "\n"
         if len(current) + len(entry) > max_len:
             chunks.append(current)
-            current = f"*{title} (contd.)*\n"
+            current = f"<b>{esc(title)} (contd.)</b>\n"
         current += entry
     if current:
         chunks.append(current)
@@ -227,8 +232,8 @@ def send_error_alert(message):
         text += f"\n\nLogs: https://github.com/{repo}/actions/runs/{run_id}"
 
     try:
-        # Plain text: error bodies routinely contain characters that break Markdown parsing.
-        if telegram_send(text, markdown=False):
+        # Plain text: error bodies routinely contain "<" and "&", which break HTML parsing.
+        if telegram_send(text, html=False):
             ERROR_MARKER.write_text("sent")
             print("Sent Telegram failure alert")
     except Exception as exc:
@@ -248,7 +253,7 @@ def run():
         print("No usable baseline — seeding snapshot instead of alerting on the whole lineup.")
         save_snapshot(current_movies)
         telegram_send(
-            f"*PVR movie checker — baseline set for {city}*\n"
+            f"<b>PVR movie checker — baseline set for {esc(city)}</b>\n"
             f"Now tracking {len(current_movies)} movies. "
             "Alerts resume from the next change onward."
         )
