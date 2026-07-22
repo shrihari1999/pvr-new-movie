@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+
+# Runtime state, restored from the Actions cache rather than committed
+data/
+.error_alerted

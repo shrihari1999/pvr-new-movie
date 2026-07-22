@@ -12,11 +12,15 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # The primary key is only ever matched exactly, and every save writes a
+      # run-specific key — so restore has to come through the prefix fallback.
       - name: Restore movie snapshot
         uses: actions/cache/restore@v5
         with:
           path: data/last_movies.json
-          key: movie-snapshot
+          key: movie-snapshot-${{ github.run_id }}
+          restore-keys: |
+            movie-snapshot-
 
       - name: Run movie checker
         env:
@@ -34,3 +38,25 @@ jobs:
         with:
           path: data/last_movies.json
           key: movie-snapshot-${{ github.run_id }}
+
+      # Backstop for failures the checker itself can't report: checkout errors,
+      # a missing interpreter, the job being cancelled mid-run.
+      - name: Alert on workflow failure
+        if: failure()
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -f .error_alerted ]; then
+            echo "Checker already sent a Telegram alert; not duplicating."
+            exit 0
+          fi
+          if [ -z "$TELEGRAM_BOT_TOKEN" ] || [ -z "$TELEGRAM_CHAT_ID" ]; then
+            echo "Telegram credentials missing; cannot alert."
+            exit 0
+          fi
+          curl -sS -o /dev/null -X POST \
+            "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=⚠️ PVR movie checker workflow failed before the checker could report. Logs: ${RUN_URL}"
